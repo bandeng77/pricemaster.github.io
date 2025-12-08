@@ -1244,23 +1244,6 @@
             color: #7f8c8d;
         }
         
-        .auto-save-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            color: #27ae60;
-            margin-top: 5px;
-            font-weight: 600;
-        }
-        
-        .auto-save-indicator .save-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #27ae60;
-        }
-        
         /* Animations */
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
@@ -1614,8 +1597,8 @@
             );
         };
 
-        // Komponen Aplikasi Utama dengan Auto-Save ke Firestore
-        const MainApp = ({ user, onLogout }) => {
+        // Komponen Aplikasi Utama dengan Penyimpanan Firestore Langsung
+        const MainApp = ({ user }) => {
             const [folders, setFolders] = useState([]);
             const [activeFolder, setActiveFolder] = useState(null);
             const [items, setItems] = useState([]);
@@ -1634,13 +1617,13 @@
             const [selectedFolderForImport, setSelectedFolderForImport] = useState('');
             const [searchQuery, setSearchQuery] = useState('');
             const [sidebarMinimized, setSidebarMinimized] = useState(false);
-            const [isSaving, setIsSaving] = useState(false);
-            const [lastSaveTime, setLastSaveTime] = useState(null);
+            const [isLoading, setIsLoading] = useState(true);
 
             // Load folders dari Firestore berdasarkan user ID
             useEffect(() => {
                 const loadFoldersFromFirestore = async () => {
                     try {
+                        setIsLoading(true);
                         const foldersSnapshot = await db
                             .collection(FOLDERS_COLLECTION)
                             .where('userId', '==', user.uid)
@@ -1650,15 +1633,20 @@
                         if (!foldersSnapshot.empty) {
                             const foldersData = [];
                             foldersSnapshot.forEach(doc => {
+                                const data = doc.data();
                                 foldersData.push({
                                     id: doc.id,
-                                    ...doc.data()
+                                    name: data.name,
+                                    items: data.items || [],
+                                    userId: data.userId,
+                                    createdAt: data.createdAt ? data.createdAt.toDate() : new Date(),
+                                    updatedAt: data.updatedAt ? data.updatedAt.toDate() : new Date()
                                 });
                             });
                             
                             setFolders(foldersData);
                             
-                            // Set active folder
+                            // Set active folder dari localStorage
                             const savedActiveFolder = localStorage.getItem(`priceMasterActiveFolder_${user.uid}`);
                             if (savedActiveFolder && foldersData.some(f => f.id === savedActiveFolder)) {
                                 setActiveFolder(savedActiveFolder);
@@ -1666,7 +1654,7 @@
                                 setActiveFolder(foldersData[0].id);
                             }
                             
-                            setLastSaveTime(new Date());
+                            showNotification('success', 'Data Dimuat', 'Data berhasil dimuat dari server');
                         } else {
                             // Create default folders if none exist
                             createDefaultFolders();
@@ -1674,6 +1662,8 @@
                     } catch (error) {
                         console.error('Error loading folders:', error);
                         showNotification('error', 'Kesalahan', 'Gagal memuat data dari server');
+                    } finally {
+                        setIsLoading(false);
                     }
                 };
 
@@ -1690,32 +1680,38 @@
                             name: 'VESDA', 
                             items: [],
                             userId: user.uid,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                            createdAt: new Date(),
+                            updatedAt: new Date()
                         },
                         { 
                             name: 'SIMPLEX', 
                             items: [],
                             userId: user.uid,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                            createdAt: new Date(),
+                            updatedAt: new Date()
                         }
                     ];
 
-                    const batch = db.batch();
                     const folderRefs = [];
                     
-                    defaultFolders.forEach(folder => {
-                        const folderRef = db.collection(FOLDERS_COLLECTION).doc();
-                        batch.set(folderRef, folder);
-                        folderRefs.push({ id: folderRef.id, ...folder });
-                    });
-
-                    await batch.commit();
+                    for (const folder of defaultFolders) {
+                        const docRef = await db.collection(FOLDERS_COLLECTION).add({
+                            ...folder,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        folderRefs.push({ 
+                            id: docRef.id, 
+                            ...folder 
+                        });
+                    }
                     
                     setFolders(folderRefs);
-                    setActiveFolder(folderRefs[0].id);
-                    localStorage.setItem(`priceMasterActiveFolder_${user.uid}`, folderRefs[0].id);
+                    if (folderRefs.length > 0) {
+                        setActiveFolder(folderRefs[0].id);
+                        localStorage.setItem(`priceMasterActiveFolder_${user.uid}`, folderRefs[0].id);
+                    }
                     
                     showNotification('success', 'Folder Default Dibuat', 'Folder VESDA dan SIMPLEX telah dibuat');
                 } catch (error) {
@@ -1723,56 +1719,6 @@
                     showNotification('error', 'Kesalahan', 'Gagal membuat folder default');
                 }
             };
-
-            // Auto-save to Firestore setiap ada perubahan pada folders
-            useEffect(() => {
-                const saveToFirestore = async () => {
-                    if (folders.length === 0 || !user.uid) return;
-                    
-                    try {
-                        setIsSaving(true);
-                        const batch = db.batch();
-                        
-                        folders.forEach(folder => {
-                            const folderRef = db.collection(FOLDERS_COLLECTION).doc(folder.id);
-                            const folderData = {
-                                name: folder.name,
-                                items: folder.items || [],
-                                userId: user.uid,
-                                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                            };
-                            
-                            if (folder.createdAt) {
-                                folderData.createdAt = folder.createdAt;
-                            } else {
-                                folderData.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-                            }
-                            
-                            batch.set(folderRef, folderData, { merge: true });
-                        });
-                        
-                        await batch.commit();
-                        setLastSaveTime(new Date());
-                        
-                        // Tampilkan notifikasi untuk perubahan besar saja (bukan auto-save kecil)
-                        if (folders.length > 0 && folders.some(f => f.items && f.items.length > 0)) {
-                            showNotification('success', 'Disimpan', 'Data berhasil disimpan ke cloud', 2000);
-                        }
-                    } catch (error) {
-                        console.error('Error saving to Firestore:', error);
-                        showNotification('error', 'Kesalahan', 'Gagal menyimpan data ke server');
-                    } finally {
-                        setTimeout(() => setIsSaving(false), 500);
-                    }
-                };
-
-                // Debounce auto-save untuk menghindari terlalu banyak request
-                const timeoutId = setTimeout(() => {
-                    saveToFirestore();
-                }, 1000);
-
-                return () => clearTimeout(timeoutId);
-            }, [folders, user.uid]);
 
             // Load items dari active folder
             useEffect(() => {
@@ -1851,7 +1797,7 @@
                 item.prices[item.prices.length - 1].price !== item.prices[0].price
             ).length;
 
-            // Fungsi untuk membuat folder baru
+            // Fungsi untuk membuat folder baru dan langsung save ke Firestore
             const createNewFolder = async () => {
                 if (!newFolderName.trim()) {
                     showNotification('warning', 'Peringatan', 'Nama folder tidak boleh kosong');
@@ -1863,23 +1809,37 @@
                     return;
                 }
 
-                const newFolder = {
-                    id: `folder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    name: newFolderName,
-                    items: [],
-                    userId: user.uid,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
+                try {
+                    const newFolderData = {
+                        name: newFolderName,
+                        items: [],
+                        userId: user.uid,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
 
-                const updatedFolders = [...folders, newFolder];
-                setFolders(updatedFolders);
-                setNewFolderName('');
-                setShowFolderModal(false);
-                
-                showNotification('success', 'Berhasil', `Folder "${newFolderName}" berhasil dibuat`);
+                    const docRef = await db.collection(FOLDERS_COLLECTION).add(newFolderData);
+                    
+                    const newFolder = {
+                        id: docRef.id,
+                        ...newFolderData,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    };
+
+                    const updatedFolders = [...folders, newFolder];
+                    setFolders(updatedFolders);
+                    setNewFolderName('');
+                    setShowFolderModal(false);
+                    
+                    showNotification('success', 'Berhasil', `Folder "${newFolderName}" berhasil dibuat`);
+                } catch (error) {
+                    console.error('Error creating folder:', error);
+                    showNotification('error', 'Kesalahan', 'Gagal membuat folder');
+                }
             };
 
-            // Fungsi untuk menghapus folder
+            // Fungsi untuk menghapus folder dari Firestore
             const deleteFolder = async (folderId) => {
                 if (folders.length <= 1) {
                     showNotification('warning', 'Peringatan', 'Tidak dapat menghapus folder terakhir');
@@ -1890,38 +1850,43 @@
                 if (!folderToDelete) return;
 
                 if (window.confirm(`Apakah Anda yakin ingin menghapus folder "${folderToDelete.name}"? Semua data di dalamnya akan hilang.`)) {
-                    // Hapus dari Firestore
                     try {
+                        // Hapus dari Firestore
                         await db.collection(FOLDERS_COLLECTION).doc(folderId).delete();
+                        
+                        const updatedFolders = folders.filter(f => f.id !== folderId);
+                        setFolders(updatedFolders);
+
+                        if (activeFolder === folderId) {
+                            setActiveFolder(updatedFolders[0].id);
+                        }
+
+                        showNotification('success', 'Berhasil', `Folder "${folderToDelete.name}" berhasil dihapus`);
                     } catch (error) {
-                        console.error('Error deleting folder from Firestore:', error);
+                        console.error('Error deleting folder:', error);
+                        showNotification('error', 'Kesalahan', 'Gagal menghapus folder');
                     }
-
-                    const updatedFolders = folders.filter(f => f.id !== folderId);
-                    setFolders(updatedFolders);
-
-                    if (activeFolder === folderId) {
-                        setActiveFolder(updatedFolders[0].id);
-                    }
-
-                    showNotification('success', 'Berhasil', `Folder "${folderToDelete.name}" berhasil dihapus`);
                 }
             };
 
-            // Fungsi untuk menghapus item tunggal
+            // Fungsi untuk menghapus item tunggal dan update Firestore
             const deleteItem = async (id) => {
                 if (window.confirm('Apakah Anda yakin ingin menghapus item ini?')) {
-                    const updatedItems = items.filter(item => item.id !== id);
-                    updateFolderItems(activeFolder, updatedItems);
-                    
-                    if (selectedItem && selectedItem.id === id) {
-                        setSelectedItem(null);
+                    try {
+                        const updatedItems = items.filter(item => item.id !== id);
+                        await updateFolderItems(activeFolder, updatedItems);
+                        
+                        if (selectedItem && selectedItem.id === id) {
+                            setSelectedItem(null);
+                        }
+                        showNotification('success', 'Berhasil', 'Item berhasil dihapus');
+                    } catch (error) {
+                        showNotification('error', 'Kesalahan', 'Gagal menghapus item');
                     }
-                    showNotification('success', 'Berhasil', 'Item berhasil dihapus');
                 }
             };
 
-            // Fungsi untuk menghapus multiple items
+            // Fungsi untuk menghapus multiple items dan update Firestore
             const deleteSelectedItems = async () => {
                 if (selectedItems.length === 0) {
                     showNotification('warning', 'Peringatan', 'Tidak ada item yang dipilih untuk dihapus');
@@ -1929,30 +1894,46 @@
                 }
 
                 if (window.confirm(`Apakah Anda yakin ingin menghapus ${selectedItems.length} item yang dipilih?`)) {
-                    const updatedItems = items.filter(item => !selectedItems.includes(item.id));
-                    updateFolderItems(activeFolder, updatedItems);
-                    
-                    setSelectedItems([]);
-                    if (selectedItem && selectedItems.includes(selectedItem.id)) {
-                        setSelectedItem(null);
+                    try {
+                        const updatedItems = items.filter(item => !selectedItems.includes(item.id));
+                        await updateFolderItems(activeFolder, updatedItems);
+                        
+                        setSelectedItems([]);
+                        if (selectedItem && selectedItems.includes(selectedItem.id)) {
+                            setSelectedItem(null);
+                        }
+                        showNotification('success', 'Berhasil', `${selectedItems.length} item berhasil dihapus`);
+                    } catch (error) {
+                        showNotification('error', 'Kesalahan', 'Gagal menghapus item');
                     }
-                    showNotification('success', 'Berhasil', `${selectedItems.length} item berhasil dihapus`);
                 }
             };
 
-            // Fungsi untuk memperbarui items di folder - AUTO SAVE KE FIRESTORE
-            const updateFolderItems = (folderId, newItems) => {
-                const updatedFolders = folders.map(folder => {
-                    if (folder.id === folderId) {
-                        return { 
-                            ...folder, 
-                            items: newItems,
-                            updatedAt: new Date().toISOString()
-                        };
-                    }
-                    return folder;
-                });
-                setFolders(updatedFolders);
+            // Fungsi untuk memperbarui items di folder dan langsung save ke Firestore
+            const updateFolderItems = async (folderId, newItems) => {
+                try {
+                    // Update di Firestore
+                    await db.collection(FOLDERS_COLLECTION).doc(folderId).update({
+                        items: newItems,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Update state lokal
+                    const updatedFolders = folders.map(folder => {
+                        if (folder.id === folderId) {
+                            return { 
+                                ...folder, 
+                                items: newItems,
+                                updatedAt: new Date()
+                            };
+                        }
+                        return folder;
+                    });
+                    setFolders(updatedFolders);
+                } catch (error) {
+                    console.error('Error updating folder items:', error);
+                    throw error;
+                }
             };
 
             // Fungsi untuk memilih/deselect item
@@ -2215,7 +2196,7 @@
                         });
                         
                         // Update folder dengan items baru
-                        updateFolderItems(selectedFolderForImport, updatedItems);
+                        await updateFolderItems(selectedFolderForImport, updatedItems);
                         
                         if (processedItems.length > 0) {
                             let message = `Berhasil mengimpor ${processedItems.length} data barang ke folder "${targetFolder.name}".`;
@@ -2285,17 +2266,23 @@
                 setSidebarMinimized(!sidebarMinimized);
             };
 
-            // Format waktu terakhir disimpan
-            const formatLastSaveTime = () => {
-                if (!lastSaveTime) return 'Belum pernah disimpan';
-                const now = new Date();
-                const diff = Math.floor((now - lastSaveTime) / 1000);
-                
-                if (diff < 60) return `${diff} detik yang lalu`;
-                if (diff < 3600) return `${Math.floor(diff / 60)} menit yang lalu`;
-                if (diff < 86400) return `${Math.floor(diff / 3600)} jam yang lalu`;
-                return `${Math.floor(diff / 86400)} hari yang lalu`;
-            };
+            if (isLoading) {
+                return React.createElement('div', {className: 'container'},
+                    React.createElement('header', null,
+                        React.createElement('div', {className: 'logo'},
+                            React.createElement('i', {className: 'fas fa-chart-line'}),
+                            React.createElement('h1', null, 'PriceMaster')
+                        ),
+                        React.createElement('p', {className: 'description'}, 'Database dan Analisis Harga Barang')
+                    ),
+                    React.createElement('div', {className: 'app-content'},
+                        React.createElement('div', {className: 'main-content', style: {textAlign: 'center', padding: '60px 40px'}},
+                            React.createElement('div', {className: 'login-loading', style: {width: '50px', height: '50px', margin: '30px auto'}}),
+                            React.createElement('p', {style: {color: '#7f8c8d', marginTop: '20px'}}, 'Memuat data dari server...')
+                        )
+                    )
+                );
+            }
 
             return React.createElement('div', {className: 'container'},
                 React.createElement('header', null,
@@ -2303,7 +2290,7 @@
                         React.createElement('i', {className: 'fas fa-chart-line'}),
                         React.createElement('h1', null, 'PriceMaster')
                     ),
-                    React.createElement('p', {className: 'description'}, 'Database dan Analisis Harga Barang - Auto Save ke Cloud')
+                    React.createElement('p', {className: 'description'}, 'Database dan Analisis Harga Barang')
                 ),
                 
                 React.createElement('div', {className: 'app-content'},
@@ -2370,12 +2357,6 @@
                                     React.createElement('p', null,
                                         items.length, ' barang • ',
                                         getAllYears().length, ' tahun data'
-                                    ),
-                                    React.createElement('div', {className: 'auto-save-indicator'},
-                                        React.createElement('div', {className: 'save-dot'}),
-                                        React.createElement('span', null, 
-                                            isSaving ? 'Menyimpan...' : `Tersimpan: ${formatLastSaveTime()}`
-                                        )
                                     )
                                 ),
                                 
@@ -2456,8 +2437,8 @@
                                             React.createElement('i', {className: 'fas fa-cloud'}),
                                         ),
                                         React.createElement('div', {className: 'stat-info'},
-                                            React.createElement('h3', null, 'Auto-Save'),
-                                            React.createElement('p', null, 'Data otomatis tersimpan')
+                                            React.createElement('h3', null, 'Cloud'),
+                                            React.createElement('p', null, 'Data Tersimpan')
                                         )
                                     )
                                 ),
