@@ -1797,6 +1797,58 @@
                 item.prices[item.prices.length - 1].price !== item.prices[0].price
             ).length;
 
+            // **PERBAIKAN UTAMA: Fungsi untuk memperbarui items di folder dan langsung save ke Firestore**
+            const updateFolderItems = async (folderId, newItems) => {
+                try {
+                    // Pastikan items dalam format yang benar untuk Firestore
+                    const firestoreItems = newItems.map(item => ({
+                        id: item.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        name: item.name || '',
+                        prices: Array.isArray(item.prices) ? item.prices.map(price => ({
+                            year: Number(price.year) || new Date().getFullYear(),
+                            price: Number(price.price) || 0
+                        })) : []
+                    }));
+
+                    // Update di Firestore dengan batch untuk konsistensi
+                    const batch = db.batch();
+                    const folderRef = db.collection(FOLDERS_COLLECTION).doc(folderId);
+                    
+                    batch.update(folderRef, {
+                        items: firestoreItems,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    await batch.commit();
+                    
+                    // Update state lokal
+                    const updatedFolders = folders.map(folder => {
+                        if (folder.id === folderId) {
+                            return { 
+                                ...folder, 
+                                items: firestoreItems,
+                                updatedAt: new Date()
+                            };
+                        }
+                        return folder;
+                    });
+                    
+                    setFolders(updatedFolders);
+                    
+                    // Jika ini adalah folder aktif, update items state
+                    if (activeFolder === folderId) {
+                        setItems(firestoreItems);
+                    }
+                    
+                    return true;
+                } catch (error) {
+                    console.error('Error updating folder items:', error);
+                    console.error('Error details:', error.message);
+                    showNotification('error', 'Kesalahan', 'Gagal menyimpan data ke server');
+                    return false;
+                }
+            };
+
             // Fungsi untuk membuat folder baru dan langsung save ke Firestore
             const createNewFolder = async () => {
                 if (!newFolderName.trim()) {
@@ -1874,12 +1926,14 @@
                 if (window.confirm('Apakah Anda yakin ingin menghapus item ini?')) {
                     try {
                         const updatedItems = items.filter(item => item.id !== id);
-                        await updateFolderItems(activeFolder, updatedItems);
+                        const success = await updateFolderItems(activeFolder, updatedItems);
                         
-                        if (selectedItem && selectedItem.id === id) {
-                            setSelectedItem(null);
+                        if (success) {
+                            if (selectedItem && selectedItem.id === id) {
+                                setSelectedItem(null);
+                            }
+                            showNotification('success', 'Berhasil', 'Item berhasil dihapus');
                         }
-                        showNotification('success', 'Berhasil', 'Item berhasil dihapus');
                     } catch (error) {
                         showNotification('error', 'Kesalahan', 'Gagal menghapus item');
                     }
@@ -1896,43 +1950,18 @@
                 if (window.confirm(`Apakah Anda yakin ingin menghapus ${selectedItems.length} item yang dipilih?`)) {
                     try {
                         const updatedItems = items.filter(item => !selectedItems.includes(item.id));
-                        await updateFolderItems(activeFolder, updatedItems);
+                        const success = await updateFolderItems(activeFolder, updatedItems);
                         
-                        setSelectedItems([]);
-                        if (selectedItem && selectedItems.includes(selectedItem.id)) {
-                            setSelectedItem(null);
+                        if (success) {
+                            setSelectedItems([]);
+                            if (selectedItem && selectedItems.includes(selectedItem.id)) {
+                                setSelectedItem(null);
+                            }
+                            showNotification('success', 'Berhasil', `${selectedItems.length} item berhasil dihapus`);
                         }
-                        showNotification('success', 'Berhasil', `${selectedItems.length} item berhasil dihapus`);
                     } catch (error) {
                         showNotification('error', 'Kesalahan', 'Gagal menghapus item');
                     }
-                }
-            };
-
-            // Fungsi untuk memperbarui items di folder dan langsung save ke Firestore
-            const updateFolderItems = async (folderId, newItems) => {
-                try {
-                    // Update di Firestore
-                    await db.collection(FOLDERS_COLLECTION).doc(folderId).update({
-                        items: newItems,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Update state lokal
-                    const updatedFolders = folders.map(folder => {
-                        if (folder.id === folderId) {
-                            return { 
-                                ...folder, 
-                                items: newItems,
-                                updatedAt: new Date()
-                            };
-                        }
-                        return folder;
-                    });
-                    setFolders(updatedFolders);
-                } catch (error) {
-                    console.error('Error updating folder items:', error);
-                    throw error;
                 }
             };
 
@@ -2024,7 +2053,7 @@
                 return calculatePercentageChange(toPrice, fromPrice);
             };
 
-            // Fungsi untuk menangani import file Excel
+            // **PERBAIKAN UTAMA: Fungsi untuk menangani import file Excel dengan penyimpanan Firestore yang benar**
             const handleFileImport = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -2040,6 +2069,7 @@
                 
                 reader.onload = async function(event) {
                     try {
+                        setIsLoading(true);
                         const data = new Uint8Array(event.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
                         
@@ -2119,6 +2149,9 @@
                                 continue;
                             }
                             
+                            // Generate unique ID untuk item
+                            const itemId = `${Date.now()}-${row}-${Math.random().toString(36).substr(2, 9)}`;
+                            
                             // Cari item yang sudah ada di data yang diimpor
                             const existingItemIndex = importedItems.findIndex(item => 
                                 item.name.toLowerCase() === partCode.toString().toLowerCase()
@@ -2126,17 +2159,21 @@
                             
                             if (existingItemIndex !== -1) {
                                 // Tambahkan harga ke item yang sudah ada
-                                importedItems[existingItemIndex].prices.push({
-                                    year: yearValue,
-                                    price: priceValue
-                                });
+                                const priceExists = importedItems[existingItemIndex].prices.some(p => p.year === yearValue);
                                 
-                                // Urutkan berdasarkan tahun
-                                importedItems[existingItemIndex].prices.sort((a, b) => a.year - b.year);
+                                if (!priceExists) {
+                                    importedItems[existingItemIndex].prices.push({
+                                        year: yearValue,
+                                        price: priceValue
+                                    });
+                                    
+                                    // Urutkan berdasarkan tahun
+                                    importedItems[existingItemIndex].prices.sort((a, b) => a.year - b.year);
+                                }
                             } else {
                                 // Buat item baru
                                 importedItems.push({
-                                    id: `${Date.now()}-${row}-${Math.random().toString(36).substr(2, 9)}`,
+                                    id: itemId,
                                     name: partCode.toString(),
                                     prices: [{
                                         year: yearValue,
@@ -2195,28 +2232,33 @@
                             }
                         });
                         
-                        // Update folder dengan items baru
-                        await updateFolderItems(selectedFolderForImport, updatedItems);
+                        // **PERBAIKAN UTAMA: Update folder dengan items baru ke Firestore**
+                        const success = await updateFolderItems(selectedFolderForImport, updatedItems);
                         
-                        if (processedItems.length > 0) {
-                            let message = `Berhasil mengimpor ${processedItems.length} data barang ke folder "${targetFolder.name}".`;
-                            
-                            if (skippedItems.length > 0) {
-                                message += ` ${skippedItems.length} data dilewati karena format tidak valid.`;
+                        if (success) {
+                            if (processedItems.length > 0) {
+                                let message = `Berhasil mengimpor ${processedItems.length} data barang ke folder "${targetFolder.name}".`;
+                                
+                                if (skippedItems.length > 0) {
+                                    message += ` ${skippedItems.length} data dilewati karena format tidak valid.`;
+                                }
+                                
+                                showNotification('success', 'Import Berhasil', message);
+                            } else {
+                                showNotification('warning', 'Tidak Ada Data', 'Tidak ada data yang berhasil diimpor');
                             }
-                            
-                            showNotification('success', 'Import Berhasil', message);
-                        } else {
-                            showNotification('warning', 'Tidak Ada Data', 'Tidak ada data yang berhasil diimpor');
                         }
                         
                     } catch (error) {
                         console.error('Error reading Excel file:', error);
-                        showNotification('error', 'Kesalahan', 'Terjadi kesalahan saat membaca file Excel');
+                        showNotification('error', 'Kesalahan', 'Terjadi kesalahan saat membaca file Excel: ' + error.message);
+                    } finally {
+                        setIsLoading(false);
                     }
                 };
                 
                 reader.onerror = function() {
+                    setIsLoading(false);
                     showNotification('error', 'Kesalahan', 'Terjadi kesalahan saat membaca file');
                 };
                 
