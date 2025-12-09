@@ -91,7 +91,7 @@
             border-radius: 10px;
             border: 2px solid #e0e0e0;
             font-size: 16px;
-            transition: all 0.3s ease;
+                            transition: all 0.3s ease;
             background: #f8f9fa;
         }
         
@@ -1244,6 +1244,128 @@
             color: #7f8c8d;
         }
         
+        /* Column Selector Modal */
+        .column-selector-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .column-selector-content {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+        }
+        
+        .column-selector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .column-selector-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .column-selector-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #7f8c8d;
+        }
+        
+        .column-selector-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        }
+        
+        .column-selector-table th, .column-selector-table td {
+            padding: 12px 15px;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+        }
+        
+        .column-selector-table th {
+            background: linear-gradient(135deg, #4b6cb7, #3a5795);
+            color: white;
+            font-weight: 600;
+        }
+        
+        .column-preview {
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .column-preview-item {
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .column-preview-item:last-child {
+            border-bottom: none;
+        }
+        
+        .column-selector-form-group {
+            margin-bottom: 20px;
+        }
+        
+        .column-selector-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .column-selector-select {
+            width: 100%;
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            background: white;
+            font-weight: 500;
+        }
+        
+        .column-selector-info {
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #4b6cb7;
+            font-size: 14px;
+        }
+        
+        .column-selector-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 25px;
+        }
+        
         /* Animations */
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
@@ -1622,6 +1744,14 @@
             const [searchQuery, setSearchQuery] = useState('');
             const [sidebarMinimized, setSidebarMinimized] = useState(false);
             const [isLoading, setIsLoading] = useState(true);
+            const [showColumnSelector, setShowColumnSelector] = useState(false);
+            const [excelData, setExcelData] = useState(null);
+            const [selectedColumns, setSelectedColumns] = useState({
+                partCode: null,
+                price: null,
+                year: null
+            });
+            const [availableColumns, setAvailableColumns] = useState([]);
 
             // Load folders dari Realtime Database berdasarkan user ID
             useEffect(() => {
@@ -2020,6 +2150,374 @@
                 return calculatePercentageChange(toPrice, fromPrice);
             };
 
+            // Fungsi untuk mendeteksi kolom secara otomatis
+            const detectColumns = (jsonData) => {
+                const columns = [];
+                const maxCols = Math.max(...jsonData.map(row => row ? row.length : 0));
+                
+                // Inisialisasi array untuk setiap kolom
+                for (let col = 0; col < maxCols; col++) {
+                    columns.push({
+                        index: col,
+                        header: '',
+                        sampleData: [],
+                        type: 'unknown'
+                    });
+                }
+                
+                // Ambil header dari baris pertama yang berisi teks
+                let headerRow = 0;
+                for (let row = 0; row < Math.min(10, jsonData.length); row++) {
+                    if (jsonData[row] && jsonData[row].some(cell => 
+                        typeof cell === 'string' && cell.trim().length > 0)) {
+                        headerRow = row;
+                        break;
+                    }
+                }
+                
+                // Isi header dan sample data
+                for (let col = 0; col < maxCols; col++) {
+                    if (jsonData[headerRow] && jsonData[headerRow][col] !== undefined) {
+                        columns[col].header = String(jsonData[headerRow][col] || `Kolom ${col + 1}`);
+                    } else {
+                        columns[col].header = `Kolom ${col + 1}`;
+                    }
+                    
+                    // Ambil 5 sample data dari kolom ini (setelah header)
+                    for (let row = headerRow + 1; row < Math.min(headerRow + 6, jsonData.length); row++) {
+                        if (jsonData[row] && jsonData[row][col] !== undefined) {
+                            columns[col].sampleData.push(jsonData[row][col]);
+                        }
+                    }
+                    
+                    // Tentukan tipe data kolom
+                    const samples = columns[col].sampleData.slice(0, 5);
+                    const hasNumbers = samples.some(sample => !isNaN(parseFloat(sample)) && isFinite(sample));
+                    const hasText = samples.some(sample => typeof sample === 'string' && sample.trim().length > 0);
+                    
+                    if (hasNumbers && !hasText) {
+                        columns[col].type = 'number';
+                    } else if (hasText) {
+                        columns[col].type = 'text';
+                    }
+                }
+                
+                return columns;
+            };
+
+            // Fungsi untuk menampilkan column selector
+            const showColumnSelectorModal = (jsonData) => {
+                const columns = detectColumns(jsonData);
+                setAvailableColumns(columns);
+                setExcelData(jsonData);
+                
+                // Coba deteksi otomatis kolom yang mungkin
+                let autoPartCode = null;
+                let autoPrice = null;
+                let autoYear = null;
+                
+                columns.forEach((col, index) => {
+                    const header = col.header.toLowerCase();
+                    
+                    // Deteksi kolom part code
+                    if (!autoPartCode && (
+                        header.includes('part') ||
+                        header.includes('kode') ||
+                        header.includes('code') ||
+                        header.includes('item') ||
+                        header.includes('nama') ||
+                        header.includes('material') ||
+                        header.includes('produk') ||
+                        header.includes('sku')
+                    )) {
+                        autoPartCode = index;
+                    }
+                    
+                    // Deteksi kolom harga
+                    if (!autoPrice && (
+                        header.includes('harga') ||
+                        header.includes('price') ||
+                        header.includes('list') ||
+                        header.includes('cost') ||
+                        header.includes('rp') ||
+                        header.includes('usd') ||
+                        header.includes('$') ||
+                        header.includes('nilai')
+                    )) {
+                        autoPrice = index;
+                    }
+                    
+                    // Deteksi kolom tahun
+                    if (!autoYear && (
+                        header.includes('tahun') ||
+                        header.includes('year') ||
+                        header.includes('date') ||
+                        header.includes('periode') ||
+                        header.includes('tanggal')
+                    )) {
+                        autoYear = index;
+                    }
+                });
+                
+                // Jika tidak terdeteksi, gunakan default atau kolom dengan data yang sesuai
+                if (autoPartCode === null) {
+                    // Cari kolom yang berisi teks (untuk part code)
+                    columns.forEach((col, index) => {
+                        if (autoPartCode === null && col.type === 'text') {
+                            autoPartCode = index;
+                        }
+                    });
+                }
+                
+                if (autoPrice === null) {
+                    // Cari kolom yang berisi angka (untuk harga)
+                    columns.forEach((col, index) => {
+                        if (autoPrice === null && col.type === 'number') {
+                            autoPrice = index;
+                        }
+                    });
+                }
+                
+                if (autoYear === null) {
+                    // Cari kolom yang berisi angka 4 digit (untuk tahun)
+                    columns.forEach((col, index) => {
+                        if (autoYear === null && col.type === 'number') {
+                            const hasYear = col.sampleData.some(sample => {
+                                const num = parseInt(sample);
+                                return !isNaN(num) && num > 1900 && num < 2100;
+                            });
+                            if (hasYear) autoYear = index;
+                        }
+                    });
+                }
+                
+                setSelectedColumns({
+                    partCode: autoPartCode,
+                    price: autoPrice,
+                    year: autoYear
+                });
+                
+                setShowColumnSelector(true);
+            };
+
+            // Fungsi untuk proses import setelah kolom dipilih
+            const processImportWithSelectedColumns = async () => {
+                if (!excelData || !selectedFolderForImport) {
+                    showNotification('error', 'Kesalahan', 'Data atau folder tidak valid');
+                    return;
+                }
+
+                if (selectedColumns.partCode === null || selectedColumns.price === null || selectedColumns.year === null) {
+                    showNotification('warning', 'Peringatan', 'Harap pilih semua kolom yang diperlukan');
+                    return;
+                }
+
+                try {
+                    const importedItems = [];
+                    const processedItems = [];
+                    const skippedItems = [];
+                    
+                    // Cari baris header
+                    let headerRow = 0;
+                    for (let row = 0; row < Math.min(10, excelData.length); row++) {
+                        if (excelData[row] && excelData[row].some(cell => 
+                            typeof cell === 'string' && cell.trim().length > 0)) {
+                            headerRow = row;
+                            break;
+                        }
+                    }
+                    
+                    // Mulai dari baris setelah header
+                    for (let row = headerRow + 1; row < excelData.length; row++) {
+                        const rowData = excelData[row];
+                        
+                        if (!rowData || rowData.length < Math.max(
+                            selectedColumns.partCode, 
+                            selectedColumns.price, 
+                            selectedColumns.year
+                        ) + 1) {
+                            continue;
+                        }
+                        
+                        const partCode = rowData[selectedColumns.partCode];
+                        const listPrice = rowData[selectedColumns.price];
+                        const year = rowData[selectedColumns.year];
+                        
+                        // Skip baris kosong
+                        if (!partCode && !listPrice && !year) {
+                            continue;
+                        }
+                        
+                        // Validasi data
+                        if (!partCode || !listPrice || !year) {
+                            skippedItems.push({
+                                row: row + 1,
+                                reason: 'Data tidak lengkap'
+                            });
+                            continue;
+                        }
+                        
+                        // Konversi harga ke angka
+                        let priceValue;
+                        if (typeof listPrice === 'string') {
+                            const cleanedPrice = listPrice.replace(/[^\d,.-]/g, '');
+                            
+                            if (cleanedPrice.includes(',') && !cleanedPrice.includes('.')) {
+                                priceValue = parseFloat(cleanedPrice.replace(',', '.'));
+                            } else if (cleanedPrice.includes('.') && cleanedPrice.includes(',')) {
+                                priceValue = parseFloat(cleanedPrice.replace(/\./g, '').replace(',', '.'));
+                            } else {
+                                priceValue = parseFloat(cleanedPrice);
+                            }
+                        } else {
+                            priceValue = parseFloat(listPrice);
+                        }
+                        
+                        // Konversi tahun ke angka
+                        let yearValue;
+                        if (typeof year === 'string') {
+                            yearValue = parseInt(year.replace(/\D/g, ''));
+                        } else if (typeof year === 'number') {
+                            yearValue = Math.floor(year);
+                        } else {
+                            skippedItems.push({
+                                row: row + 1,
+                                reason: 'Format tahun tidak valid'
+                            });
+                            continue;
+                        }
+                        
+                        if (isNaN(priceValue) || isNaN(yearValue)) {
+                            skippedItems.push({
+                                row: row + 1,
+                                reason: 'Format angka tidak valid'
+                            });
+                            continue;
+                        }
+                        
+                        // Validasi tahun (harus antara 1900-2100)
+                        if (yearValue < 1900 || yearValue > 2100) {
+                            skippedItems.push({
+                                row: row + 1,
+                                reason: 'Tahun tidak valid'
+                            });
+                            continue;
+                        }
+                        
+                        // Cari item yang sudah ada di data yang diimpor
+                        const existingItemIndex = importedItems.findIndex(item => 
+                            item.name.toLowerCase() === partCode.toString().toLowerCase().trim()
+                        );
+                        
+                        if (existingItemIndex !== -1) {
+                            // Cek apakah tahun sudah ada
+                            const existingYearIndex = importedItems[existingItemIndex].prices.findIndex(
+                                p => p.year === yearValue
+                            );
+                            
+                            if (existingYearIndex !== -1) {
+                                // Update harga untuk tahun yang sama
+                                importedItems[existingItemIndex].prices[existingYearIndex].price = priceValue;
+                            } else {
+                                // Tambahkan harga baru
+                                importedItems[existingItemIndex].prices.push({
+                                    year: yearValue,
+                                    price: priceValue
+                                });
+                                
+                                // Urutkan berdasarkan tahun
+                                importedItems[existingItemIndex].prices.sort((a, b) => a.year - b.year);
+                            }
+                        } else {
+                            // Buat item baru
+                            importedItems.push({
+                                id: generateId(),
+                                name: partCode.toString().trim(),
+                                prices: [{
+                                    year: yearValue,
+                                    price: priceValue
+                                }]
+                            });
+                        }
+                        
+                        processedItems.push({
+                            row: row + 1,
+                            partCode: partCode.toString().trim(),
+                            price: priceValue,
+                            year: yearValue
+                        });
+                    }
+                    
+                    // Dapatkan folder target
+                    const targetFolder = folders.find(f => f.id === selectedFolderForImport);
+                    if (!targetFolder) {
+                        showNotification('error', 'Kesalahan', 'Folder tujuan tidak ditemukan');
+                        return;
+                    }
+                    
+                    // Gabungkan dengan data yang sudah ada di folder target
+                    const existingItems = targetFolder.items || [];
+                    const updatedItems = [...existingItems];
+                    
+                    importedItems.forEach(importedItem => {
+                        const existingIndex = updatedItems.findIndex(item => 
+                            item.name.toLowerCase() === importedItem.name.toLowerCase()
+                        );
+                        
+                        if (existingIndex !== -1) {
+                            // Gabungkan data harga
+                            importedItem.prices.forEach(priceData => {
+                                const existingPriceIndex = updatedItems[existingIndex].prices.findIndex(
+                                    p => p.year === priceData.year
+                                );
+                                
+                                if (existingPriceIndex !== -1) {
+                                    // Update harga yang sudah ada
+                                    updatedItems[existingIndex].prices[existingPriceIndex].price = priceData.price;
+                                } else {
+                                    // Tambahkan harga baru
+                                    updatedItems[existingIndex].prices.push(priceData);
+                                }
+                            });
+                            
+                            // Urutkan kembali berdasarkan tahun
+                            updatedItems[existingIndex].prices.sort((a, b) => a.year - b.year);
+                        } else {
+                            // Tambahkan item baru
+                            updatedItems.push(importedItem);
+                        }
+                    });
+                    
+                    // Update folder dengan items baru
+                    await updateFolderItems(selectedFolderForImport, updatedItems);
+                    
+                    // Reset state
+                    setShowColumnSelector(false);
+                    setExcelData(null);
+                    setSelectedColumns({
+                        partCode: null,
+                        price: null,
+                        year: null
+                    });
+                    
+                    if (processedItems.length > 0) {
+                        let message = `Berhasil mengimpor ${processedItems.length} data barang ke folder "${targetFolder.name}".`;
+                        
+                        if (skippedItems.length > 0) {
+                            message += ` ${skippedItems.length} data dilewati karena format tidak valid.`;
+                        }
+                        
+                        showNotification('success', 'Import Berhasil', message);
+                    } else {
+                        showNotification('warning', 'Tidak Ada Data', 'Tidak ada data yang berhasil diimpor');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error processing import:', error);
+                    showNotification('error', 'Kesalahan', 'Terjadi kesalahan saat memproses data');
+                }
+            };
+
             // Fungsi untuk menangani import file Excel
             const handleFileImport = async (e) => {
                 const file = e.target.files[0];
@@ -2041,170 +2539,11 @@
                         
                         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
                         
-                        // Fungsi untuk mendapatkan nilai sel berdasarkan koordinat
-                        const getCellValue = (cellAddress) => {
-                            return worksheet[cellAddress] ? worksheet[cellAddress].v : null;
-                        };
+                        // Konversi ke JSON array untuk analisis
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                         
-                        // Ambil data berdasarkan format yang ditentukan
-                        const importedItems = [];
-                        const processedItems = [];
-                        const skippedItems = [];
-                        
-                        // Mulai dari baris 8 (sesuai permintaan)
-                        let row = 8;
-                        
-                        while (true) {
-                            // Ambil data dari kolom C, G, H
-                            const partCode = getCellValue('C' + row);
-                            const listPrice = getCellValue('G' + row);
-                            const year = getCellValue('H' + row);
-                            
-                            // Jika tidak ada data di kolom C, berhenti
-                            if (!partCode && !listPrice && !year) {
-                                break;
-                            }
-                            
-                            // Validasi data
-                            if (!partCode || !listPrice || !year) {
-                                skippedItems.push({
-                                    row: row,
-                                    reason: 'Data tidak lengkap'
-                                });
-                                row++;
-                                continue;
-                            }
-                            
-                            // Konversi harga ke angka
-                            let priceValue;
-                            if (typeof listPrice === 'string') {
-                                const cleanedPrice = listPrice.replace(/[^\d,.-]/g, '');
-                                
-                                if (cleanedPrice.includes(',') && !cleanedPrice.includes('.')) {
-                                    priceValue = parseFloat(cleanedPrice.replace(',', '.'));
-                                } else if (cleanedPrice.includes('.') && cleanedPrice.includes(',')) {
-                                    priceValue = parseFloat(cleanedPrice.replace(/\./g, '').replace(',', '.'));
-                                } else {
-                                    priceValue = parseFloat(cleanedPrice);
-                                }
-                            } else {
-                                priceValue = parseFloat(listPrice);
-                            }
-                            
-                            // Konversi tahun ke angka
-                            let yearValue;
-                            if (typeof year === 'string') {
-                                yearValue = parseInt(year.replace(/\D/g, ''));
-                            } else if (typeof year === 'number') {
-                                yearValue = Math.floor(year);
-                            } else {
-                                skippedItems.push({
-                                    row: row,
-                                    reason: 'Format tahun tidak valid'
-                                });
-                                row++;
-                                continue;
-                            }
-                            
-                            if (isNaN(priceValue) || isNaN(yearValue)) {
-                                skippedItems.push({
-                                    row: row,
-                                    reason: 'Format angka tidak valid'
-                                });
-                                row++;
-                                continue;
-                            }
-                            
-                            // Cari item yang sudah ada di data yang diimpor
-                            const existingItemIndex = importedItems.findIndex(item => 
-                                item.name.toLowerCase() === partCode.toString().toLowerCase()
-                            );
-                            
-                            if (existingItemIndex !== -1) {
-                                // Tambahkan harga ke item yang sudah ada
-                                importedItems[existingItemIndex].prices.push({
-                                    year: yearValue,
-                                    price: priceValue
-                                });
-                                
-                                // Urutkan berdasarkan tahun
-                                importedItems[existingItemIndex].prices.sort((a, b) => a.year - b.year);
-                            } else {
-                                // Buat item baru
-                                importedItems.push({
-                                    id: generateId(),
-                                    name: partCode.toString(),
-                                    prices: [{
-                                        year: yearValue,
-                                        price: priceValue
-                                    }]
-                                });
-                            }
-                            
-                            processedItems.push({
-                                row: row,
-                                partCode: partCode,
-                                price: priceValue,
-                                year: yearValue
-                            });
-                            
-                            row++;
-                        }
-                        
-                        // Dapatkan folder target
-                        const targetFolder = folders.find(f => f.id === selectedFolderForImport);
-                        if (!targetFolder) {
-                            showNotification('error', 'Kesalahan', 'Folder tujuan tidak ditemukan');
-                            return;
-                        }
-                        
-                        // Gabungkan dengan data yang sudah ada di folder target
-                        const existingItems = targetFolder.items || [];
-                        const updatedItems = [...existingItems];
-                        
-                        importedItems.forEach(importedItem => {
-                            const existingIndex = updatedItems.findIndex(item => 
-                                item.name.toLowerCase() === importedItem.name.toLowerCase()
-                            );
-                            
-                            if (existingIndex !== -1) {
-                                // Gabungkan data harga
-                                importedItem.prices.forEach(priceData => {
-                                    const existingPriceIndex = updatedItems[existingIndex].prices.findIndex(
-                                        p => p.year === priceData.year
-                                    );
-                                    
-                                    if (existingPriceIndex !== -1) {
-                                        // Update harga yang sudah ada
-                                        updatedItems[existingIndex].prices[existingPriceIndex].price = priceData.price;
-                                    } else {
-                                        // Tambahkan harga baru
-                                        updatedItems[existingIndex].prices.push(priceData);
-                                    }
-                                });
-                                
-                                // Urutkan kembali berdasarkan tahun
-                                updatedItems[existingIndex].prices.sort((a, b) => a.year - b.year);
-                            } else {
-                                // Tambahkan item baru
-                                updatedItems.push(importedItem);
-                            }
-                        });
-                        
-                        // Update folder dengan items baru
-                        await updateFolderItems(selectedFolderForImport, updatedItems);
-                        
-                        if (processedItems.length > 0) {
-                            let message = `Berhasil mengimpor ${processedItems.length} data barang ke folder "${targetFolder.name}".`;
-                            
-                            if (skippedItems.length > 0) {
-                                message += ` ${skippedItems.length} data dilewati karena format tidak valid.`;
-                            }
-                            
-                            showNotification('success', 'Import Berhasil', message);
-                        } else {
-                            showNotification('warning', 'Tidak Ada Data', 'Tidak ada data yang berhasil diimpor');
-                        }
+                        // Tampilkan column selector
+                        showColumnSelectorModal(jsonData);
                         
                     } catch (error) {
                         console.error('Error reading Excel file:', error);
@@ -2881,6 +3220,129 @@
                             },
                                 React.createElement('i', {className: 'fas fa-plus'}),
                                 ' Buat Folder'
+                            )
+                        )
+                    )
+                ),
+
+                // Modal untuk memilih kolom Excel
+                showColumnSelector && React.createElement('div', {className: 'column-selector-modal'},
+                    React.createElement('div', {className: 'column-selector-content'},
+                        React.createElement('div', {className: 'column-selector-header'},
+                            React.createElement('div', {className: 'column-selector-title'},
+                                React.createElement('i', {className: 'fas fa-columns'}),
+                                ' Pilih Kolom dari File Excel'
+                            ),
+                            React.createElement('button', {
+                                className: 'column-selector-close',
+                                onClick: () => {
+                                    setShowColumnSelector(false);
+                                    setExcelData(null);
+                                    setSelectedColumns({
+                                        partCode: null,
+                                        price: null,
+                                        year: null
+                                    });
+                                }
+                            },
+                                React.createElement('i', {className: 'fas fa-times'})
+                            )
+                        ),
+                        
+                        React.createElement('div', {className: 'column-selector-info'},
+                            React.createElement('i', {className: 'fas fa-info-circle'}),
+                            ' Sistem telah mendeteksi kolom secara otomatis. Pastikan kolom yang dipilih sesuai dengan data Anda.'
+                        ),
+                        
+                        React.createElement('table', {className: 'column-selector-table'},
+                            React.createElement('thead', null,
+                                React.createElement('tr', null,
+                                    React.createElement('th', null, 'Kolom'),
+                                    React.createElement('th', null, 'Header'),
+                                    React.createElement('th', null, 'Tipe Data'),
+                                    React.createElement('th', null, 'Pilih Untuk')
+                                )
+                            ),
+                            React.createElement('tbody', null,
+                                availableColumns.map((column, index) => 
+                                    React.createElement('tr', {key: index},
+                                        React.createElement('td', {style: {fontWeight: 'bold', fontFamily: 'monospace'}}, index + 1),
+                                        React.createElement('td', null, column.header),
+                                        React.createElement('td', null, 
+                                            column.type === 'number' ? 'Angka' : 
+                                            column.type === 'text' ? 'Teks' : 'Tidak Diketahui'
+                                        ),
+                                        React.createElement('td', null,
+                                            React.createElement('select', {
+                                                value: 
+                                                    selectedColumns.partCode === index ? 'partCode' :
+                                                    selectedColumns.price === index ? 'price' :
+                                                    selectedColumns.year === index ? 'year' : '',
+                                                onChange: (e) => {
+                                                    const newSelected = { ...selectedColumns };
+                                                    
+                                                    // Hapus pemilihan sebelumnya untuk tipe yang sama
+                                                    if (e.target.value === 'partCode') {
+                                                        if (newSelected.partCode !== null) newSelected.partCode = null;
+                                                        newSelected.partCode = index;
+                                                    } else if (e.target.value === 'price') {
+                                                        if (newSelected.price !== null) newSelected.price = null;
+                                                        newSelected.price = index;
+                                                    } else if (e.target.value === 'year') {
+                                                        if (newSelected.year !== null) newSelected.year = null;
+                                                        newSelected.year = index;
+                                                    } else {
+                                                        // Hapus pemilihan
+                                                        if (newSelected.partCode === index) newSelected.partCode = null;
+                                                        if (newSelected.price === index) newSelected.price = null;
+                                                        if (newSelected.year === index) newSelected.year = null;
+                                                    }
+                                                    
+                                                    setSelectedColumns(newSelected);
+                                                },
+                                                style: {padding: '5px 10px', borderRadius: '4px', border: '1px solid #ddd'}
+                                            },
+                                                React.createElement('option', {value: ''}, '-- Pilih --'),
+                                                React.createElement('option', {value: 'partCode'}, 'Part Code'),
+                                                React.createElement('option', {value: 'price'}, 'Harga'),
+                                                React.createElement('option', {value: 'year'}, 'Tahun')
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        ),
+                        
+                        React.createElement('div', {className: 'column-selector-form-group'},
+                            React.createElement('label', {className: 'column-selector-label'}, 'Preview Data:'),
+                            React.createElement('div', {className: 'column-preview'},
+                                {availableColumns.length > 0 && availableColumns[0].sampleData.slice(0, 10).map((sample, idx) => 
+                                    React.createElement('div', {key: idx, className: 'column-preview-item'},
+                                        `Baris ${idx + 2}: ${sample !== undefined ? String(sample) : '(kosong)'}`
+                                    )
+                                )}
+                            )
+                        ),
+                        
+                        React.createElement('div', {className: 'column-selector-actions'},
+                            React.createElement('button', {
+                                className: 'btn btn-secondary',
+                                onClick: () => {
+                                    setShowColumnSelector(false);
+                                    setExcelData(null);
+                                    setSelectedColumns({
+                                        partCode: null,
+                                        price: null,
+                                        year: null
+                                    });
+                                }
+                            }, 'Batal'),
+                            React.createElement('button', {
+                                className: 'btn btn-success',
+                                onClick: processImportWithSelectedColumns
+                            },
+                                React.createElement('i', {className: 'fas fa-check'}),
+                                ' Proses Import'
                             )
                         )
                     )
