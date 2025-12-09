@@ -1396,6 +1396,7 @@
             border-radius: 15px;
             padding: 30px;
             width: 90%;
+            max-width: 800px;
             box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
             max-height: 90vh;
             overflow-y: auto;
@@ -1503,6 +1504,110 @@
         
         .add-price-form input[type="number"] {
             width: 150px;
+        }
+        
+        /* Year Delete Modal */
+        .year-delete-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .year-delete-content {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+        }
+        
+        .year-delete-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .year-delete-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .year-delete-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #7f8c8d;
+        }
+        
+        .year-delete-info {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #f39c12;
+            font-size: 14px;
+        }
+        
+        .year-delete-warning {
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #e74c3c;
+            font-size: 14px;
+        }
+        
+        .year-delete-stats {
+            display: flex;
+            gap: 15px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .year-delete-stat {
+            flex: 1;
+            min-width: 150px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .year-delete-stat h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        
+        .year-delete-stat p {
+            font-size: 24px;
+            font-weight: 700;
+            color: #e74c3c;
+        }
+        
+        .year-delete-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 25px;
         }
         
         /* Animations */
@@ -1676,6 +1781,14 @@
             
             .add-price-form input {
                 width: 100%;
+            }
+            
+            .year-delete-stats {
+                flex-direction: column;
+            }
+            
+            .year-delete-stat {
+                min-width: 100%;
             }
         }
     </style>
@@ -2133,6 +2246,124 @@
             );
         };
 
+        // Komponen Modal Hapus Tahun (Menghapus semua harga di satu tahun)
+        const YearDeleteModal = ({ year, items, onClose, onConfirm }) => {
+            const [isProcessing, setIsProcessing] = useState(false);
+            
+            // Hitung statistik
+            const getYearStats = () => {
+                let totalItemsWithYear = 0;
+                let affectedItems = [];
+                
+                items.forEach(item => {
+                    if (item.prices.some(p => p.year === year)) {
+                        totalItemsWithYear++;
+                        affectedItems.push(item.name);
+                    }
+                });
+                
+                return {
+                    totalItemsWithYear,
+                    affectedItems: affectedItems.slice(0, 10), // Ambil 10 item pertama saja
+                    hasMore: affectedItems.length > 10
+                };
+            };
+            
+            const stats = getYearStats();
+            
+            const handleConfirm = async () => {
+                if (stats.totalItemsWithYear === 0) {
+                    showNotification('warning', 'Peringatan', `Tidak ada data untuk tahun ${year}`);
+                    onClose();
+                    return;
+                }
+                
+                if (window.confirm(`Apakah Anda yakin ingin menghapus SEMUA data harga untuk tahun ${year} dari ${stats.totalItemsWithYear} item? Tindakan ini tidak dapat dibatalkan!`)) {
+                    try {
+                        setIsProcessing(true);
+                        await onConfirm(year);
+                        onClose();
+                    } catch (error) {
+                        showNotification('error', 'Kesalahan', 'Gagal menghapus data tahun');
+                    } finally {
+                        setIsProcessing(false);
+                    }
+                }
+            };
+            
+            return React.createElement('div', {className: 'year-delete-modal'},
+                React.createElement('div', {className: 'year-delete-content'},
+                    React.createElement('div', {className: 'year-delete-header'},
+                        React.createElement('div', {className: 'year-delete-title'},
+                            React.createElement('i', {className: 'fas fa-calendar-times'}),
+                            'Hapus Data Tahun ',
+                            React.createElement('span', {style: {fontWeight: '700', color: '#e74c3c'}}, year)
+                        ),
+                        React.createElement('button', {
+                            className: 'year-delete-close',
+                            onClick: onClose
+                        },
+                            React.createElement('i', {className: 'fas fa-times'})
+                        )
+                    ),
+                    
+                    React.createElement('div', {className: 'year-delete-info'},
+                        React.createElement('i', {className: 'fas fa-exclamation-triangle'}),
+                        ' Anda akan menghapus SEMUA data harga untuk tahun ini dari SEMUA item di folder aktif.'
+                    ),
+                    
+                    React.createElement('div', {className: 'year-delete-warning'},
+                        React.createElement('i', {className: 'fas fa-exclamation-circle'}),
+                        ' PERINGATAN: Tindakan ini tidak dapat dibatalkan! Pastikan Anda sudah yakin.'
+                    ),
+                    
+                    React.createElement('div', {className: 'year-delete-stats'},
+                        React.createElement('div', {className: 'year-delete-stat'},
+                            React.createElement('h4', null, 'Total Item Terpengaruh'),
+                            React.createElement('p', null, stats.totalItemsWithYear)
+                        ),
+                        React.createElement('div', {className: 'year-delete-stat'},
+                            React.createElement('h4', null, 'Tahun yang Dihapus'),
+                            React.createElement('p', null, year)
+                        )
+                    ),
+                    
+                    stats.totalItemsWithYear > 0 && React.createElement('div', {className: 'item-detail-section'},
+                        React.createElement('h3', null,
+                            React.createElement('i', {className: 'fas fa-list'}),
+                            ' Item yang Terpengaruh (10 pertama)'
+                        ),
+                        React.createElement('div', {className: 'column-preview'},
+                            stats.affectedItems.map((itemName, index) => 
+                                React.createElement('div', {key: index, className: 'column-preview-item'},
+                                    `${index + 1}. ${itemName}`
+                                )
+                            ),
+                            stats.hasMore && React.createElement('div', {className: 'column-preview-item', style: {fontStyle: 'italic', color: '#7f8c8d'}},
+                                `... dan ${stats.totalItemsWithYear - 10} item lainnya`
+                            )
+                        )
+                    ),
+                    
+                    React.createElement('div', {className: 'year-delete-actions'},
+                        React.createElement('button', {
+                            className: 'btn btn-secondary',
+                            onClick: onClose,
+                            disabled: isProcessing
+                        }, 'Batal'),
+                        React.createElement('button', {
+                            className: 'btn btn-danger',
+                            onClick: handleConfirm,
+                            disabled: isProcessing
+                        },
+                            isProcessing ? React.createElement('span', {className: 'login-loading'}) : React.createElement('i', {className: 'fas fa-trash'}),
+                            isProcessing ? 'Memproses...' : `Hapus Data Tahun ${year}`
+                        )
+                    )
+                )
+            );
+        };
+
         // Komponen Aplikasi Utama dengan Realtime Database
         const MainApp = ({ user }) => {
             const [folders, setFolders] = useState([]);
@@ -2162,6 +2393,8 @@
                 year: null
             });
             const [availableColumns, setAvailableColumns] = useState([]);
+            const [showYearDeleteModal, setShowYearDeleteModal] = useState(false);
+            const [selectedYearToDelete, setSelectedYearToDelete] = useState(null);
 
             // Load folders dari Realtime Database berdasarkan user ID
             useEffect(() => {
@@ -2582,6 +2815,52 @@
                 } catch (error) {
                     showNotification('error', 'Kesalahan', 'Gagal memperbarui item');
                 }
+            };
+
+            // Fungsi untuk menghapus SEMUA data harga di satu tahun tertentu
+            const deleteAllPricesForYear = async (year) => {
+                try {
+                    // Filter out prices for the selected year from all items
+                    const updatedItems = items.map(item => {
+                        const filteredPrices = item.prices.filter(price => price.year !== year);
+                        
+                        // Return item with filtered prices (or remove item if no prices left)
+                        if (filteredPrices.length === 0) {
+                            return null; // Mark for removal
+                        }
+                        
+                        return {
+                            ...item,
+                            prices: filteredPrices
+                        };
+                    }).filter(item => item !== null); // Remove items with no prices
+                    
+                    // Update the folder with modified items
+                    await updateFolderItems(activeFolder, updatedItems);
+                    
+                    // Update comparison if it involves the deleted year
+                    if (comparison.from === year || comparison.to === year) {
+                        setComparison({ from: null, to: null });
+                    }
+                    
+                    // Update hidden years
+                    if (hiddenYears.includes(year)) {
+                        setHiddenYears(hiddenYears.filter(y => y !== year));
+                    }
+                    
+                    showNotification('success', 'Berhasil', `Semua data harga untuk tahun ${year} berhasil dihapus dari ${items.length - updatedItems.length} item`);
+                    
+                } catch (error) {
+                    console.error('Error deleting year data:', error);
+                    showNotification('error', 'Kesalahan', 'Gagal menghapus data tahun');
+                    throw error;
+                }
+            };
+
+            // Fungsi untuk membuka modal hapus tahun
+            const openYearDeleteModal = (year) => {
+                setSelectedYearToDelete(year);
+                setShowYearDeleteModal(true);
             };
 
             // Fungsi untuk mendeteksi kolom secara otomatis
@@ -3291,7 +3570,7 @@
                                         )
                                     ),
 
-                                    // Year Controls
+                                    // Year Controls (DIPERBAIKI dengan tambahan fitur hapus tahun)
                                     React.createElement('div', {className: 'year-controls'},
                                         React.createElement('div', {style: {fontWeight: '600', color: '#2c3e50'}}, 'Tampilkan Tahun:'),
                                         React.createElement('div', {
@@ -3316,7 +3595,30 @@
                                                     checked: !hiddenYears.includes(year),
                                                     onChange: () => {}
                                                 }),
-                                                React.createElement('span', null, year)
+                                                React.createElement('span', null, year),
+                                                // Tombol hapus tahun (hanya muncul jika tahun ada di data)
+                                                React.createElement('button', {
+                                                    className: 'btn-danger',
+                                                    onClick: (e) => {
+                                                        e.stopPropagation();
+                                                        openYearDeleteModal(year);
+                                                    },
+                                                    style: {
+                                                        marginLeft: 'auto',
+                                                        padding: '4px 8px',
+                                                        fontSize: '12px',
+                                                        borderRadius: '4px',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    },
+                                                    title: `Hapus semua data tahun ${year}`
+                                                },
+                                                    React.createElement('i', {className: 'fas fa-trash'}),
+                                                    ' Hapus Tahun'
+                                                )
                                             )
                                         )
                                     ),
@@ -3788,6 +4090,17 @@
                     item: selectedItem,
                     onClose: () => setShowItemDetail(false),
                     onUpdate: handleUpdateItem
+                }),
+
+                // Modal untuk menghapus semua data di satu tahun
+                showYearDeleteModal && selectedYearToDelete && React.createElement(YearDeleteModal, {
+                    year: selectedYearToDelete,
+                    items: items,
+                    onClose: () => {
+                        setShowYearDeleteModal(false);
+                        setSelectedYearToDelete(null);
+                    },
+                    onConfirm: deleteAllPricesForYear
                 })
             );
         };
