@@ -1418,7 +1418,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Firebase Configuration - Diperbarui untuk Realtime Database
+        // Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyCK6XyRds11YteJCXHxrZK0TWULSYJsa4I",
             authDomain: "pricemaster-decfb.firebaseapp.com",
@@ -1431,7 +1431,7 @@
 
         // Initialize Firebase
         const app = firebase.initializeApp(firebaseConfig);
-        const db = firebase.database(app); // Realtime Database
+        const db = firebase.database(app);
         const auth = firebase.auth(app);
 
         // Database References
@@ -1511,7 +1511,6 @@
                     const userCredential = await auth.signInWithEmailAndPassword(email, password);
                     setSuccess('Login berhasil!');
                     
-                    // Panggil callback untuk beralih ke aplikasi utama
                     setTimeout(() => {
                         onLoginSuccess(userCredential.user);
                     }, 1500);
@@ -1611,7 +1610,6 @@
             const [filteredItems, setFilteredItems] = useState([]);
             const [selectedItem, setSelectedItem] = useState(null);
             const [selectedItems, setSelectedItems] = useState([]);
-            const [chartData, setChartData] = useState([]);
             const [fileName, setFileName] = useState('');
             const [hiddenYears, setHiddenYears] = useState([]);
             const [viewMode, setViewMode] = useState('matrix');
@@ -1654,11 +1652,8 @@
                             
                             setFolders(foldersData);
                             
-                            // Set active folder dari localStorage
-                            const savedActiveFolder = localStorage.getItem(`priceMasterActiveFolder_${user.uid}`);
-                            if (savedActiveFolder && foldersData.some(f => f.id === savedActiveFolder)) {
-                                setActiveFolder(savedActiveFolder);
-                            } else if (foldersData.length > 0) {
+                            // Set active folder dari folder pertama yang ada
+                            if (foldersData.length > 0) {
                                 setActiveFolder(foldersData[0].id);
                             }
                             
@@ -1680,7 +1675,7 @@
                 }
             }, [user.uid]);
 
-            // Setup realtime listener untuk folder
+            // Setup realtime listener untuk folder - HANYA untuk update realtime
             useEffect(() => {
                 if (!user.uid) return;
                 
@@ -1703,7 +1698,16 @@
                             });
                         });
                         
+                        // Update state folders
                         setFolders(foldersData);
+                        
+                        // Update items jika active folder berubah
+                        if (activeFolder) {
+                            const currentFolder = foldersData.find(f => f.id === activeFolder);
+                            if (currentFolder) {
+                                setItems(currentFolder.items || []);
+                            }
+                        }
                     }
                 };
                 
@@ -1712,7 +1716,41 @@
                 return () => {
                     foldersRef.off('value', handleDataChange);
                 };
-            }, [user.uid]);
+            }, [user.uid, activeFolder]);
+
+            // Update items saat active folder berubah
+            useEffect(() => {
+                if (activeFolder && folders.length > 0) {
+                    const folder = folders.find(f => f.id === activeFolder);
+                    if (folder) {
+                        setItems(folder.items || []);
+                        setSelectedFolderForImport(activeFolder);
+                    } else {
+                        setItems([]);
+                    }
+                } else {
+                    setItems([]);
+                }
+            }, [activeFolder, folders]);
+
+            // Filter items berdasarkan search query
+            useEffect(() => {
+                if (searchQuery.trim() === '') {
+                    setFilteredItems(items);
+                } else {
+                    const query = searchQuery.toLowerCase();
+                    const filtered = items.filter(item => 
+                        item.name && item.name.toLowerCase().includes(query)
+                    );
+                    setFilteredItems(filtered);
+                }
+                setCurrentPage(1);
+            }, [items, searchQuery]);
+
+            // Reset selected items ketika items berubah
+            useEffect(() => {
+                setSelectedItems([]);
+            }, [items]);
 
             // Create default folders
             const createDefaultFolders = async () => {
@@ -1749,7 +1787,6 @@
                     setFolders(folderRefs);
                     if (folderRefs.length > 0) {
                         setActiveFolder(folderRefs[0].id);
-                        localStorage.setItem(`priceMasterActiveFolder_${user.uid}`, folderRefs[0].id);
                     }
                     
                     showNotification('success', 'Folder Default Dibuat', 'Folder VESDA dan SIMPLEX telah dibuat');
@@ -1758,57 +1795,6 @@
                     showNotification('error', 'Kesalahan', 'Gagal membuat folder default');
                 }
             };
-
-            // Load items dari active folder
-            useEffect(() => {
-                if (activeFolder && folders.length > 0) {
-                    const folder = folders.find(f => f.id === activeFolder);
-                    if (folder) {
-                        setItems(folder.items || []);
-                        setSelectedFolderForImport(activeFolder);
-                    }
-                } else {
-                    setItems([]);
-                }
-            }, [activeFolder, folders]);
-
-            // Filter items berdasarkan search query
-            useEffect(() => {
-                if (searchQuery.trim() === '') {
-                    setFilteredItems(items);
-                } else {
-                    const query = searchQuery.toLowerCase();
-                    const filtered = items.filter(item => 
-                        item.name && item.name.toLowerCase().includes(query)
-                    );
-                    setFilteredItems(filtered);
-                }
-                setCurrentPage(1);
-            }, [items, searchQuery]);
-
-            // Save active folder to localStorage
-            useEffect(() => {
-                if (activeFolder && user.uid) {
-                    localStorage.setItem(`priceMasterActiveFolder_${user.uid}`, activeFolder);
-                }
-            }, [activeFolder, user.uid]);
-
-            // Save sidebar state
-            useEffect(() => {
-                localStorage.setItem('priceMasterSidebarMinimized', JSON.stringify(sidebarMinimized));
-            }, [sidebarMinimized]);
-
-            // Update chart data ketika items berubah
-            useEffect(() => {
-                if (selectedItem) {
-                    updateChartData(selectedItem);
-                }
-            }, [items, selectedItem]);
-
-            // Reset selected items ketika items berubah
-            useEffect(() => {
-                setSelectedItems([]);
-            }, [items]);
 
             // Dapatkan semua tahun unik dari data
             const getAllYears = () => {
@@ -1839,7 +1825,7 @@
                 item.prices[item.prices.length - 1].price !== item.prices[0].price
             ).length;
 
-            // Fungsi untuk membuat folder baru dan langsung save ke Realtime Database
+            // Fungsi untuk membuat folder baru
             const createNewFolder = async () => {
                 if (!newFolderName.trim()) {
                     showNotification('warning', 'Peringatan', 'Nama folder tidak boleh kosong');
@@ -1863,11 +1849,6 @@
                     const newFolderRef = db.ref(`${FOLDERS_REF}/${user.uid}`).push();
                     await newFolderRef.set(newFolderData);
                     
-                    const newFolder = {
-                        id: newFolderRef.key,
-                        ...newFolderData
-                    };
-
                     setNewFolderName('');
                     setShowFolderModal(false);
                     
@@ -1878,7 +1859,7 @@
                 }
             };
 
-            // Fungsi untuk menghapus folder dari Realtime Database
+            // Fungsi untuk menghapus folder
             const deleteFolder = async (folderId) => {
                 if (folders.length <= 1) {
                     showNotification('warning', 'Peringatan', 'Tidak dapat menghapus folder terakhir');
@@ -1910,7 +1891,7 @@
                 }
             };
 
-            // Fungsi untuk menghapus item tunggal dan update Realtime Database
+            // Fungsi untuk menghapus item tunggal
             const deleteItem = async (id) => {
                 if (window.confirm('Apakah Anda yakin ingin menghapus item ini?')) {
                     try {
@@ -1927,7 +1908,7 @@
                 }
             };
 
-            // Fungsi untuk menghapus multiple items dan update Realtime Database
+            // Fungsi untuk menghapus multiple items
             const deleteSelectedItems = async () => {
                 if (selectedItems.length === 0) {
                     showNotification('warning', 'Peringatan', 'Tidak ada item yang dipilih untuk dihapus');
@@ -1950,7 +1931,7 @@
                 }
             };
 
-            // Fungsi untuk memperbarui items di folder dan langsung save ke Realtime Database
+            // Fungsi untuk memperbarui items di folder
             const updateFolderItems = async (folderId, newItems) => {
                 try {
                     // Update di Realtime Database
@@ -1993,21 +1974,6 @@
 
             const selectItem = (item) => {
                 setSelectedItem(item);
-                updateChartData(item);
-            };
-
-            const updateChartData = (item) => {
-                if (!item || !item.prices || item.prices.length === 0) {
-                    setChartData([]);
-                    return;
-                }
-
-                const data = item.prices.map(priceData => ({
-                    year: priceData.year,
-                    price: priceData.price
-                }));
-
-                setChartData(data);
             };
 
             const formatPrice = (price) => {
@@ -2467,8 +2433,8 @@
                                             React.createElement('i', {className: 'fas fa-cloud'}),
                                         ),
                                         React.createElement('div', {className: 'stat-info'},
-                                            React.createElement('h3', null, 'Realtime'),
-                                            React.createElement('p', null, 'Database')
+                                            React.createElement('h3', null, 'Firebase'),
+                                            React.createElement('p', null, 'Realtime Database')
                                         )
                                     )
                                 ),
@@ -2640,7 +2606,7 @@
                                                     React.createElement('th', {className: 'item-name'},
                                                         React.createElement('div', {style: {display: 'flex', flexDirection: 'column', gap: '5px'}},
                                                             React.createElement('span', null, 'Nama Barang (Part Code)'),
-                                                            // Search Bar - Di dalam header kolom Nama Barang
+                                                            // Search Bar
                                                             React.createElement('div', {className: 'search-container-inline'},
                                                                 React.createElement('div', {className: 'search-input-wrapper-inline'},
                                                                     React.createElement('input', {
@@ -2722,7 +2688,7 @@
                                                 React.createElement('th', null,
                                                     React.createElement('div', {style: {display: 'flex', flexDirection: 'column', gap: '5px'}},
                                                         React.createElement('span', null, 'Nama Barang (Part Code)'),
-                                                        // Search Bar - Di dalam header kolom Nama Barang
+                                                        // Search Bar
                                                         React.createElement('div', {className: 'search-container-inline'},
                                                             React.createElement('div', {className: 'search-input-wrapper-inline'},
                                                                 React.createElement('input', {
